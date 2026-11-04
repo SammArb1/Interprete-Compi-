@@ -9,9 +9,10 @@ EQUALS = 3
 LESSGREATER = 4
 SUM = 5
 PRODUCT = 6
-PREFIX = 7
-CALL = 8
-INDEX = 9
+POWER = 7
+PREFIX = 8
+CALL = 9
+INDEX = 10
 
 PRECEDENCES = {
     ASSIGN: ASSIGN_PREC,
@@ -25,7 +26,7 @@ PRECEDENCES = {
     MINUS: SUM,
     SLASH: PRODUCT,
     ASTERISK: PRODUCT,
-    POW: PRODUCT,
+    POW: POWER,
     LPAREN: CALL,
     LBRACKET: INDEX
 }
@@ -135,7 +136,9 @@ class Parser:
     def parse_expression(self, precedence):
         prefix = self.prefix_parse_fns.get(self.cur_token.type)
         if prefix is None:
-            self.errors.append(f"no se encontró prefijo para {self.cur_token.type}")
+            line = self.cur_token.line if self.cur_token else "?"
+            col = self.cur_token.column if self.cur_token else "?"
+            self.errors.append(f"Línea {line}, Columna {col}: no se encontró prefijo para {self.cur_token.type}")
             return None
         left_exp = prefix()
         while self.peek_token.type != SEMICOLON and precedence < self.peek_precedence():
@@ -154,7 +157,9 @@ class Parser:
             value = int(self.cur_token.literal)
             return IntegerLiteral(self.cur_token, value)
         except ValueError:
-            self.errors.append(f"no se pudo parsear {self.cur_token.literal} como entero")
+            line = self.cur_token.line if self.cur_token else "?"
+            col = self.cur_token.column if self.cur_token else "?"
+            self.errors.append(f"Línea {line}, Columna {col}: no se pudo parsear {self.cur_token.literal} como entero")
             return None
 
     def parse_string_literal(self):
@@ -208,17 +213,23 @@ class Parser:
         token = self.cur_token
         if not self.expect_peek(LPAREN): return None
         self.next_token()
+        
+        # 1. Inicialización
         init = None
         if self.cur_token.type != SEMICOLON:
-            init = self.parse_statement() 
-        else:
+            init = self.parse_statement()
+        if self.cur_token.type == SEMICOLON:
             self.next_token()
+
+        # 2. Condición
         condition = None
         if self.cur_token.type != SEMICOLON:
             condition = self.parse_expression(LOWEST)
             if not self.expect_peek(SEMICOLON): return None
-        else:
+        if self.cur_token.type == SEMICOLON:
             self.next_token()
+
+        # 3. Incremento/Actualización
         update = None
         if self.cur_token.type != RPAREN:
             update = self.parse_expression(LOWEST)
@@ -293,12 +304,18 @@ class Parser:
         operator = self.cur_token.literal
         precedence = self.cur_precedence()
         self.next_token()
-        right = self.parse_expression(precedence)
+        if operator == "**":
+            # Asociatividad hacia la derecha para potencia
+            right = self.parse_expression(precedence - 1)
+        else:
+            right = self.parse_expression(precedence)
         return InfixExpression(token, left, operator, right)
         
     def parse_assign_expression(self, left):
-        if not isinstance(left, Identifier):
-            self.errors.append("se esperaba un identificador para la asignación")
+        if not isinstance(left, (Identifier, IndexExpression)):
+            line = self.cur_token.line if self.cur_token else "?"
+            col = self.cur_token.column if self.cur_token else "?"
+            self.errors.append(f"Línea {line}, Columna {col}: se esperaba un identificador o indexación para la asignación")
             return None
         token = self.cur_token
         self.next_token()
@@ -326,7 +343,9 @@ class Parser:
             return False
 
     def peek_error(self, t):
-        msg = f"se esperaba que el siguiente token fuera {t}, pero fue {self.peek_token.type}"
+        line = self.peek_token.line if self.peek_token else "?"
+        col = self.peek_token.column if self.peek_token else "?"
+        msg = f"Línea {line}, Columna {col}: se esperaba que el siguiente token fuera {t}, pero fue {self.peek_token.type}"
         self.errors.append(msg)
 
     def cur_precedence(self):

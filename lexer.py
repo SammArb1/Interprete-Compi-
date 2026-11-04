@@ -10,15 +10,23 @@ class Lexer:
         self.position = 0
         self.read_position = 0
         self.ch = ''
+        self.line = 1
+        self.column = 0
+        self.errors = []
         self.read_char()
 
     def read_char(self):
+        if self.ch == '\n':
+            self.line += 1
+            self.column = 0
+
         if self.read_position >= len(self.input):
             self.ch = ''
         else:
             self.ch = self.input[self.read_position]
         self.position = self.read_position
         self.read_position += 1
+        self.column += 1
 
     def peek_char(self):
         if self.read_position >= len(self.input):
@@ -28,77 +36,85 @@ class Lexer:
     def next_token(self):
         self.skip_whitespace()
         tok = None
+        tok_line = self.line
+        tok_col = self.column
 
         if self.ch == '=':
             if self.peek_char() == '=':
                 ch = self.ch
                 self.read_char()
-                tok = Token(EQ, ch + self.ch)
+                tok = Token(EQ, ch + self.ch, tok_line, tok_col)
             else:
-                tok = Token(ASSIGN, self.ch)
+                tok = Token(ASSIGN, self.ch, tok_line, tok_col)
         elif self.ch == '+':
-            tok = Token(PLUS, self.ch)
+            tok = Token(PLUS, self.ch, tok_line, tok_col)
         elif self.ch == '-':
-            tok = Token(MINUS, self.ch)
+            tok = Token(MINUS, self.ch, tok_line, tok_col)
         elif self.ch == '!':
             if self.peek_char() == '=':
                 ch = self.ch
                 self.read_char()
-                tok = Token(NOT_EQ, ch + self.ch)
+                tok = Token(NOT_EQ, ch + self.ch, tok_line, tok_col)
             else:
-                tok = Token(BANG, self.ch)
+                tok = Token(BANG, self.ch, tok_line, tok_col)
         elif self.ch == '/':
-            tok = Token(SLASH, self.ch)
+            tok = Token(SLASH, self.ch, tok_line, tok_col)
         elif self.ch == '*':
             if self.peek_char() == '*':
                 ch = self.ch
                 self.read_char()
-                tok = Token(POW, ch + self.ch)
+                tok = Token(POW, ch + self.ch, tok_line, tok_col)
             else:
-                tok = Token(ASTERISK, self.ch)
+                tok = Token(ASTERISK, self.ch, tok_line, tok_col)
         elif self.ch == '<':
             if self.peek_char() == '=':
                 ch = self.ch
                 self.read_char()
-                tok = Token(LTE, ch + self.ch)
+                tok = Token(LTE, ch + self.ch, tok_line, tok_col)
             else:
-                tok = Token(LT, self.ch)
+                tok = Token(LT, self.ch, tok_line, tok_col)
         elif self.ch == '>':
             if self.peek_char() == '=':
                 ch = self.ch
                 self.read_char()
-                tok = Token(GTE, ch + self.ch)
+                tok = Token(GTE, ch + self.ch, tok_line, tok_col)
             else:
-                tok = Token(GT, self.ch)
+                tok = Token(GT, self.ch, tok_line, tok_col)
         elif self.ch == ';':
-            tok = Token(SEMICOLON, self.ch)
+            tok = Token(SEMICOLON, self.ch, tok_line, tok_col)
         elif self.ch == ',':
-            tok = Token(COMMA, self.ch)
+            tok = Token(COMMA, self.ch, tok_line, tok_col)
         elif self.ch == '(':
-            tok = Token(LPAREN, self.ch)
+            tok = Token(LPAREN, self.ch, tok_line, tok_col)
         elif self.ch == ')':
-            tok = Token(RPAREN, self.ch)
+            tok = Token(RPAREN, self.ch, tok_line, tok_col)
         elif self.ch == '{':
-            tok = Token(LBRACE, self.ch)
+            tok = Token(LBRACE, self.ch, tok_line, tok_col)
         elif self.ch == '}':
-            tok = Token(RBRACE, self.ch)
+            tok = Token(RBRACE, self.ch, tok_line, tok_col)
         elif self.ch == '[':
-            tok = Token(LBRACKET, self.ch)
+            tok = Token(LBRACKET, self.ch, tok_line, tok_col)
         elif self.ch == ']':
-            tok = Token(RBRACKET, self.ch)
+            tok = Token(RBRACKET, self.ch, tok_line, tok_col)
         elif self.ch == '"' or self.ch == "'":
-            tok = Token(STRING, self.read_string(self.ch))
+            quote_type = self.ch
+            str_val, err = self.read_string(quote_type)
+            if err is not None:
+                self.errors.append(err)
+                tok = Token(ILLEGAL, err, tok_line, tok_col)
+            else:
+                tok = Token(STRING, str_val, tok_line, tok_col)
         elif self.ch == '':
-            tok = Token(EOF, "")
+            tok = Token(EOF, "", tok_line, tok_col)
         else:
             if self.is_letter(self.ch):
                 literal = self.read_identifier()
-                type = lookup_ident(literal)
-                return Token(type, literal)
+                type_ = lookup_ident(literal)
+                return Token(type_, literal, tok_line, tok_col)
             elif self.is_digit(self.ch):
-                return Token(INT, self.read_number())
+                return Token(INT, self.read_number(), tok_line, tok_col)
             else:
-                tok = Token(ILLEGAL, self.ch)
+                tok = Token(ILLEGAL, self.ch, tok_line, tok_col)
 
         self.read_char()
         return tok
@@ -126,8 +142,32 @@ class Lexer:
         return self.input[pos:self.position]
 
     def read_string(self, quote_type):
-        pos = self.position + 1
-        self.read_char()
-        while self.ch != quote_type and self.ch != '':
+        chars = []
+        start_line = self.line
+        start_col = self.column
+        self.read_char()  # avanzar de la comilla de apertura
+        while self.ch != quote_type:
+            if self.ch == '' or self.ch == '\n':
+                err = f"Línea {start_line}, Columna {start_col}: cadena no cerrada antes de fin de línea o archivo"
+                return None, err
+            if self.ch == '\\':
+                self.read_char()
+                if self.ch == 'n':
+                    chars.append('\n')
+                elif self.ch == 't':
+                    chars.append('\t')
+                elif self.ch == 'r':
+                    chars.append('\r')
+                elif self.ch == '\\':
+                    chars.append('\\')
+                elif self.ch == quote_type:
+                    chars.append(quote_type)
+                elif self.ch == '':
+                    err = f"Línea {start_line}, Columna {start_col}: cadena no cerrada antes de fin de archivo"
+                    return None, err
+                else:
+                    chars.append(self.ch)
+            else:
+                chars.append(self.ch)
             self.read_char()
-        return self.input[pos:self.position]
+        return "".join(chars), None

@@ -56,9 +56,14 @@ KEYWORDS = {
 }
 
 class Token:
-    def __init__(self, type, literal):
+    def __init__(self, type, literal, line=1, column=1):
         self.type = type
         self.literal = literal
+        self.line = line
+        self.column = column
+
+    def __repr__(self):
+        return f"Token({self.type}, {repr(self.literal)}, {self.line}:{self.column})"
 
 def lookup_ident(ident):
     return KEYWORDS.get(ident, IDENT)

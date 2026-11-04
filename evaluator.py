@@ -9,8 +9,18 @@ FALSE_OBJ = BooleanVal(False)
 NULL_OBJ = Null()
 BREAK_OBJ = BreakValue()
 
+def builtin_len(*args):
+    if len(args) != 1:
+        return Error(f"número incorrecto de argumentos para len: esperado 1, obtenido {len(args)}")
+    arg = args[0]
+    if arg.type() == ObjType.ARRAY:
+        return Integer(len(arg.elements))
+    elif arg.type() == ObjType.STRING:
+        return Integer(len(arg.value))
+    return Error(f"argumento para 'len' no soportado: {arg.type()}")
+
 BUILTINS = {
-    "len": Builtin(lambda *args: Integer(len(args[0].elements)) if len(args) == 1 and args[0].type() == ObjType.ARRAY else Error("argumento para 'len' no soportado")),
+    "len": Builtin(builtin_len),
     "print": Builtin(lambda *args: print(*[a.inspect() for a in args]) or NULL_OBJ)
 }
 
@@ -21,7 +31,9 @@ def native_bool_to_bool_object(input_val):
     return TRUE_OBJ if input_val else FALSE_OBJ
 
 def evaluate(node, env):
-    if isinstance(node, Program):
+    if node is None:
+        return NULL_OBJ
+    elif isinstance(node, Program):
         return eval_program(node.statements, env)
     elif isinstance(node, BlockStatement):
         return eval_block_statement(node, env)
@@ -41,8 +53,24 @@ def evaluate(node, env):
     elif isinstance(node, AssignExpression):
         val = evaluate(node.value, env)
         if is_error(val): return val
-        env.assign(node.name.value, val)
-        return val
+        if isinstance(node.name, Identifier):
+            env.assign(node.name.value, val)
+            return val
+        elif isinstance(node.name, IndexExpression):
+            left_obj = evaluate(node.name.left, env)
+            if is_error(left_obj): return left_obj
+            idx_obj = evaluate(node.name.index, env)
+            if is_error(idx_obj): return idx_obj
+            if left_obj.type() != ObjType.ARRAY:
+                return Error(f"asignación por índice no soportada para: {left_obj.type()}")
+            if idx_obj.type() != ObjType.INTEGER:
+                return Error(f"el índice debe ser un entero, no {idx_obj.type()}")
+            idx = idx_obj.value
+            if idx < 0 or idx >= len(left_obj.elements):
+                return Error(f"índice fuera de rango: {idx}")
+            left_obj.elements[idx] = val
+            return val
+        return Error(f"destino de asignación inválido: {type(node.name).__name__}")
     elif isinstance(node, IntegerLiteral):
         return Integer(node.value)
     elif isinstance(node, StringLiteral):
@@ -87,7 +115,7 @@ def evaluate(node, env):
         index = evaluate(node.index, env)
         if is_error(index): return index
         return eval_index_expression(left, index)
-    return None
+    return Error(f"nodo de AST no soportado o desconocido: {type(node).__name__}")
 
 def eval_program(stmts, env):
     result = None
@@ -100,9 +128,10 @@ def eval_program(stmts, env):
     return result
 
 def eval_block_statement(block, env):
+    block_env = Environment(outer=env)
     result = None
     for stmt in block.statements:
-        result = evaluate(stmt, env)
+        result = evaluate(stmt, block_env)
         if result is not None and (result.type() == ObjType.RETURN_VALUE or result.type() == ObjType.ERROR or result.type() == ObjType.BREAK_VALUE):
             return result
     return result
@@ -134,9 +163,13 @@ def eval_infix_expression(operator, left, right):
     return Error(f"operador desconocido: {left.type()} {operator} {right.type()}")
 
 def eval_string_infix_expression(operator, left, right):
-    if operator != "+":
-        return Error(f"operador desconocido: {left.type()} {operator} {right.type()}")
-    return StringObj(left.value + right.value)
+    if operator == "+":
+        return StringObj(left.value + right.value)
+    elif operator == "==":
+        return native_bool_to_bool_object(left.value == right.value)
+    elif operator == "!=":
+        return native_bool_to_bool_object(left.value != right.value)
+    return Error(f"operador desconocido: {left.type()} {operator} {right.type()}")
 
 def eval_integer_infix_expression(operator, left, right):
     l_val = left.value
@@ -144,8 +177,14 @@ def eval_integer_infix_expression(operator, left, right):
     if operator == "+": return Integer(l_val + r_val)
     elif operator == "-": return Integer(l_val - r_val)
     elif operator == "*": return Integer(l_val * r_val)
-    elif operator == "/": return Integer(l_val // r_val)
-    elif operator == "**": return Integer(l_val ** r_val)
+    elif operator == "/":
+        if r_val == 0:
+            return Error("división por cero")
+        return Integer(l_val // r_val)
+    elif operator == "**":
+        if l_val == 0 and r_val < 0:
+            return Error("cálculo de potencia inválido: cero elevado a potencia negativa")
+        return Integer(l_val ** r_val)
     elif operator == "<": return native_bool_to_bool_object(l_val < r_val)
     elif operator == ">": return native_bool_to_bool_object(l_val > r_val)
     elif operator == "<=": return native_bool_to_bool_object(l_val <= r_val)

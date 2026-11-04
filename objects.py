@@ -21,22 +21,30 @@ class Integer(Obj):
         self.value = value
     def type(self): return ObjType.INTEGER
     def inspect(self): return str(self.value)
+    def __eq__(self, other):
+        return isinstance(other, Integer) and self.value == other.value
 
 class StringObj(Obj):
     def __init__(self, value):
         self.value = value
     def type(self): return ObjType.STRING
     def inspect(self): return self.value
+    def __eq__(self, other):
+        return isinstance(other, StringObj) and self.value == other.value
 
 class BooleanVal(Obj):
     def __init__(self, value):
         self.value = value
     def type(self): return ObjType.BOOLEAN
     def inspect(self): return "true" if self.value else "false"
+    def __eq__(self, other):
+        return isinstance(other, BooleanVal) and self.value == other.value
 
 class Null(Obj):
     def type(self): return ObjType.NULL
     def inspect(self): return "null"
+    def __eq__(self, other):
+        return isinstance(other, Null)
 
 class ReturnValue(Obj):
     def __init__(self, value):
@@ -70,6 +78,15 @@ class ArrayObj(Obj):
     def type(self): return ObjType.ARRAY
     def inspect(self):
         return "[" + ", ".join([e.inspect() for e in self.elements]) + "]"
+    def __eq__(self, other):
+        if not isinstance(other, ArrayObj):
+            return False
+        if len(self.elements) != len(other.elements):
+            return False
+        for a, b in zip(self.elements, other.elements):
+            if a != b:
+                return False
+        return True
 
 class Builtin(Obj):
     def __init__(self, fn):
